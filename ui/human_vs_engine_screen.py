@@ -4,7 +4,7 @@ import chess
 from ui.base_screen import BaseScreen
 from game.chess_game_manager import ChessGameManager
 from engine.stockfish_engine import StockfishEngine # Example engine
-from config import LIGHT_COLOR, DARK_COLOR, HIGHLIGHT_COLOR, SQUARE_SIZE, TEXT_COLOR, BACKGROUND_COLOR
+from config import LIGHT_COLOR, DARK_COLOR, HIGHLIGHT_COLOR, SQUARE_SIZE, TEXT_COLOR, BACKGROUND_COLOR, FONT_NAME, FONT_SIZE_LARGE, FONT_SIZE_MEDIUM, FONT_SIZE_SMALL, BUTTON_COLOR, BUTTON_HOVER_COLOR
 from datetime import datetime
 
 class HumanVsEngineScreen(BaseScreen):
@@ -27,7 +27,7 @@ class HumanVsEngineScreen(BaseScreen):
         self.waiting_for_engine = False # Flag to prevent human input while engine thinks
 
         # Message display
-        self.message_font = pygame.font.SysFont(self.font.name, 40, bold=True)
+        self.message_font = pygame.font.SysFont(FONT_NAME, 40, bold=True)
         self.message = ""
 
         self.setup_complete = False # Flag to indicate if engine selection is done

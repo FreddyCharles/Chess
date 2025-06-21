@@ -3,7 +3,7 @@ import pygame
 import chess
 from ui.base_screen import BaseScreen
 from game.chess_game_manager import ChessGameManager
-from config import LIGHT_COLOR, DARK_COLOR, HIGHLIGHT_COLOR, SQUARE_SIZE, TEXT_COLOR, BACKGROUND_COLOR
+from config import LIGHT_COLOR, DARK_COLOR, HIGHLIGHT_COLOR, SQUARE_SIZE, TEXT_COLOR, BACKGROUND_COLOR, FONT_NAME
 from datetime import datetime
 
 class HumanVsHumanScreen(BaseScreen):
@@ -20,7 +20,8 @@ class HumanVsHumanScreen(BaseScreen):
         self.end_time = None
         
         # For displaying messages (e.g., game over)
-        self.message_font = pygame.font.SysFont(self.font.name, 40, bold=True)
+        # Use FONT_NAME from config directly, as self.font is a pygame.font.Font object
+        self.message_font = pygame.font.SysFont(FONT_NAME, 40, bold=True)
         self.message = ""
 
     def reset_game(self):
