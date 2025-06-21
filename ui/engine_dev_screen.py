@@ -4,7 +4,8 @@ from ui.base_screen import BaseScreen
 from database.db_manager import DBManager
 from engine.stockfish_engine import StockfishEngine
 from engine.simple_ai_engine import SimpleAIEngine
-from engine.RandomMover import RandomMover # Import RandomMover
+from engine.RandomMover import RandomMover
+from engine.CapturePreferringEngine import CapturePreferringEngine # Import CapturePreferringEngine
 from tournament.swiss_tournament import SwissTournament
 from config import (BACKGROUND_COLOR, BUTTON_COLOR, BUTTON_HOVER_COLOR, TEXT_COLOR, TEXT_ON_LIGHT_BG_COLOR,
                     FONT_NAME, FONT_SIZE_XLARGE, FONT_SIZE_LARGE, FONT_SIZE_MEDIUM, FONT_SIZE_SMALL,
@@ -56,8 +57,9 @@ class EngineDevScreen(BaseScreen):
         # --- Engine Management Section ---
         section_spacing = PADDING_LARGE * 2
         
-        # Add Engine Buttons (Now three, side by side or wrapped)
-        num_add_buttons = 3
+        # Add Engine Buttons (Now four, potentially wrapped or in two rows if too wide)
+        # For simplicity, let's try to fit them. If not, this layout needs adjustment.
+        num_add_buttons = 4
         add_button_width = (content_width - PADDING_MEDIUM * (num_add_buttons - 1)) // num_add_buttons
         
         add_simple_ai_rect = pygame.Rect(left_align, current_y, add_button_width, BUTTON_HEIGHT_STD)
@@ -66,7 +68,10 @@ class EngineDevScreen(BaseScreen):
         add_random_mover_rect = pygame.Rect(add_simple_ai_rect.right + PADDING_MEDIUM, current_y, add_button_width, BUTTON_HEIGHT_STD)
         self.buttons.append({"text": "Add Random Mover", "rect": add_random_mover_rect, "action": "ADD_RANDOM_MOVER"})
 
-        add_stockfish_rect = pygame.Rect(add_random_mover_rect.right + PADDING_MEDIUM, current_y, add_button_width, BUTTON_HEIGHT_STD)
+        add_capture_engine_rect = pygame.Rect(add_random_mover_rect.right + PADDING_MEDIUM, current_y, add_button_width, BUTTON_HEIGHT_STD)
+        self.buttons.append({"text": "Add Capture Engine", "rect": add_capture_engine_rect, "action": "ADD_CAPTURE_ENGINE"})
+
+        add_stockfish_rect = pygame.Rect(add_capture_engine_rect.right + PADDING_MEDIUM, current_y, add_button_width, BUTTON_HEIGHT_STD)
         self.buttons.append({"text": "Add Stockfish (Local)", "rect": add_stockfish_rect, "action": "ADD_STOCKFISH"})
         current_y += BUTTON_HEIGHT_STD + PADDING_MEDIUM
 
@@ -252,6 +257,11 @@ class EngineDevScreen(BaseScreen):
             self.db_manager.add_engine(name, "1.0", None, {"type": "internal", "class": "RandomMover"})
             self._load_engines_from_db()
             self.tournament_message = f"Added {name}!"
+        elif action == "ADD_CAPTURE_ENGINE":
+            name = f"CapturePreferringEngine-{sum(1 for e in self.engines_in_db if e['name'].startswith('CapturePreferringEngine')) + 1}"
+            self.db_manager.add_engine(name, "1.0", None, {"type": "internal", "class": "CapturePreferringEngine"})
+            self._load_engines_from_db()
+            self.tournament_message = f"Added {name}!"
         elif action == "ADD_STOCKFISH":
             # For adding Stockfish, you'd need a way to input its path.
             # For simplicity, let's hardcode a common path for demo.
@@ -299,6 +309,8 @@ class EngineDevScreen(BaseScreen):
                     engine_instance = SimpleAIEngine(name=eng_data['name'], version=eng_data['version'])
                 elif engine_class_name == 'RandomMover':
                     engine_instance = RandomMover(name=eng_data['name'], version=eng_data['version'])
+                elif engine_class_name == 'CapturePreferringEngine':
+                    engine_instance = CapturePreferringEngine(name=eng_data['name'], version=eng_data['version'])
                 else:
                     print(f"Unknown internal engine class: {engine_class_name} for {eng_data['name']}. Skipping.")
             elif eng_data.get('path') and os.path.exists(eng_data['path']): # External UCI
