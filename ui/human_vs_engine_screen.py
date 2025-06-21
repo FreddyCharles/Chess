@@ -1,5 +1,6 @@
 # ui/human_vs_engine_screen.py
 import pygame
+import os
 import chess
 from ui.base_screen import BaseScreen
 from game.chess_game_manager import ChessGameManager
