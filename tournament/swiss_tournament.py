@@ -2,6 +2,7 @@
 import chess
 from game.chess_game_manager import ChessGameManager
 from database.db_manager import DBManager
+from tournament.elo_calculator import update_elos, DEFAULT_K_FACTOR # Import Elo functions
 from datetime import datetime
 import random
 
@@ -13,9 +14,35 @@ class SwissTournament:
     def __init__(self, tournament_name: str, engines: list, num_rounds: int, db_manager: DBManager):
         self.tournament_name = tournament_name
         self.engines = engines # List of engine objects (instances of BaseChessEngine subclasses)
+        # Ensure each engine object has an 'id' and 'elo' attribute, fetched from DB or set at registration
+        for engine in self.engines:
+            if not hasattr(engine, 'id') or not hasattr(engine, 'elo'):
+                # This is a fallback/warning. Ideally, engine objects are populated with this from DB
+                # when the tournament is initialized with a list of engine *instances*.
+                engine_data_from_db = self.db_manager.get_engine_by_name(engine.name) # Assumes get_engine_by_name exists
+                if engine_data_from_db:
+                    engine.id = engine_data_from_db['engine_id']
+                    engine.elo = engine_data_from_db['elo']
+                else: # Should not happen if engines are from DB
+                    engine.id = None
+                    engine.elo = 1200
+                    print(f"Warning: Engine {engine.name} missing ID/Elo. Using default Elo 1200.")
+
         self.num_rounds = num_rounds
         self.db_manager = db_manager
-        self.engine_scores = {engine.name: {"points": 0.0, "opponents": [], "games_played": 0} for engine in engines}
+        self.engine_scores = {
+            engine.name: {
+                "points": 0.0,
+                "opponents": [], # List of opponent names
+                "games_played": 0,
+                "wins": 0,
+                "losses": 0,
+                "draws": 0,
+                "id": engine.id,
+                "initial_elo": engine.elo, # Store initial Elo
+                "current_elo": engine.elo  # Store current Elo, updated after each game
+            } for engine in engines
+        }
         self.tournament_id = None
         self.current_round = 0
         self.games_in_round = [] # Stores (white_engine, black_engine) for current round
@@ -147,28 +174,67 @@ class SwissTournament:
 
         end_time = datetime.now()
         winner, reason = game_manager.get_game_result()
+        score_white = 0.0
+        score_black = 0.0
+
+        winner, reason = game_manager.get_game_result()
+        score_white = 0.0
+        # score_black is not explicitly needed for Elo update if using score_white, but good for clarity
+        # score_black = 0.0
 
         if winner == 'white':
             self.engine_scores[white_engine.name]["points"] += 1.0
+            self.engine_scores[white_engine.name]["wins"] += 1
+            self.engine_scores[black_engine.name]["losses"] += 1
             game_result = "white_win"
+            score_white = 1.0
         elif winner == 'black':
             self.engine_scores[black_engine.name]["points"] += 1.0
+            self.engine_scores[black_engine.name]["wins"] += 1
+            self.engine_scores[white_engine.name]["losses"] += 1
             game_result = "black_win"
-        elif winner == 'draw':
+            score_white = 0.0 # White lost
+        elif winner == 'draw': # Explicit draw from game manager
             self.engine_scores[white_engine.name]["points"] += 0.5
             self.engine_scores[black_engine.name]["points"] += 0.5
+            self.engine_scores[white_engine.name]["draws"] += 1
+            self.engine_scores[black_engine.name]["draws"] += 1
             game_result = "draw"
-        else: # Game might not be truly over according to chess.Board.is_game_over() if max_moves hit
-            print(f"  Game ended due to max moves ({max_moves}). Declaring a draw.")
+            score_white = 0.5
+        else: # Game ended due to max moves or other non-standard condition
+            if move_count >= max_moves:
+                reason = "max moves reached"
+                print(f"  Game ended due to max moves ({max_moves}). Declaring a draw.")
+            else:
+                reason = "unknown termination" # Or could be based on last player to fail a move if that was the case
+                print(f"  Game ended due to unknown reason (e.g. engine failed move). Declaring a draw for scoring.")
+
             self.engine_scores[white_engine.name]["points"] += 0.5
             self.engine_scores[black_engine.name]["points"] += 0.5
-            game_result = "draw"
-            reason = "max moves reached"
+            game_result = "draw" # Treat as draw for tournament scoring
+            score_white = 0.5
+            score_black = 0.5
 
         self.engine_scores[white_engine.name]["games_played"] += 1
         self.engine_scores[black_engine.name]["games_played"] += 1
 
-        print(f"  Result: {winner if winner else 'Draw'} by {reason if reason else 'timeout/max moves'}")
+        # Elo Update
+        white_id = self.engine_scores[white_engine.name]["id"]
+        black_id = self.engine_scores[black_engine.name]["id"]
+
+        # Fetch current Elos from our tracked scores, which should be up-to-date
+        elo_w = self.engine_scores[white_engine.name]["current_elo"]
+        elo_b = self.engine_scores[black_engine.name]["current_elo"]
+
+        new_elo_w, new_elo_b = update_elos(elo_w, elo_b, score_white) # score_white is 1.0, 0.5, or 0.0
+
+        self.db_manager.update_engine_elo(white_id, new_elo_w)
+        self.db_manager.update_engine_elo(black_id, new_elo_b)
+
+        self.engine_scores[white_engine.name]["current_elo"] = new_elo_w
+        self.engine_scores[black_engine.name]["current_elo"] = new_elo_b
+
+        print(f"  Result: {winner if winner else 'Draw'} by {reason if reason else 'N/A'}. Elos: {white_engine.name} ({elo_w}->{new_elo_w}), {black_engine.name} ({elo_b}->{new_elo_b})")
 
         # Save game to main games table
         game_data = {
@@ -202,9 +268,23 @@ class SwissTournament:
         """Finalizes the tournament, updates status in DB, and prints final standings."""
         self.is_tournament_running = False
         self.db_manager.update_tournament_status(self.tournament_id, "completed", datetime.now().isoformat())
+
         print("\n--- Tournament Completed! ---")
-        self.get_standings()
-        print("Tournament results saved to database.")
+        self.get_standings() # Prints final standings to console
+
+        # Save final engine stats for the tournament
+        for engine_name, data in self.engine_scores.items():
+            self.db_manager.save_tournament_engine_stats(
+                tournament_id=self.tournament_id,
+                engine_id=data["id"],
+                initial_elo=data["initial_elo"],
+                final_elo=data["current_elo"], # This is the Elo after all games
+                wins=data["wins"],
+                losses=data["losses"],
+                draws=data["draws"],
+                points_scored=data["points"]
+            )
+        print("Tournament results and engine performance statistics saved to database.")
         
         # Clean up engines if they manage processes
         for engine in self.engines:
