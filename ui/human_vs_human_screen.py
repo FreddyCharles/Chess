@@ -100,11 +100,7 @@ class HumanVsHumanScreen(BaseScreen):
 
             board = self.game_manager.get_board_object()
 
-            if self.selected_square is None:
-                return True
-
-            board = self.game_manager.get_board_object()
-
+            # This is the corrected logic block
             if self.selected_square is None:
                 # No square selected, select if it has a piece of the current turn's color
                 piece_on_clicked_square = board.piece_at(clicked_square)
