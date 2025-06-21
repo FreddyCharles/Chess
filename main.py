@@ -18,7 +18,8 @@ from ui.stats_screen import StatsScreen # Will be created later
 
 # --- Pygame Initialization ---
 pygame.init()
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+# Add pygame.RESIZABLE flag to make the window resizable
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 pygame.display.set_caption("Chess Commander")
 clock = pygame.time.Clock()
 
@@ -102,6 +103,23 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.VIDEORESIZE: # Handle window resize event
+                # Update screen dimensions in config (if needed by other parts, though BaseScreen instances have their own)
+                # config.WIDTH, config.HEIGHT = event.w, event.h
+                # Recreate the screen surface with new dimensions
+                # Note: This simple resize doesn't dynamically rescale UI elements.
+                # UI elements will remain at their original pixel sizes and positions relative to top-left.
+                # Proper UI rescaling would require significant changes in how UI elements are defined and drawn.
+                global screen
+                screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+                # Optionally, notify screens of resize if they need to adjust internal layouts
+                for scr in app_state_manager.screens.values():
+                    if hasattr(scr, 'on_resize'):
+                        scr.on_resize(event.w, event.h)
+                    else: # Default update for BaseScreen derived classes
+                        scr.screen_width = event.w
+                        scr.screen_height = event.h
+
             else:
                 # Delegate event handling to the current screen
                 current_screen.handle_event(event)

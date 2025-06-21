@@ -1,8 +1,8 @@
 # config.py
 
 # Screen dimensions
-WIDTH, HEIGHT = 800, 800
-SQUARE_SIZE = WIDTH // 8
+WIDTH, HEIGHT = 1200, 900 # Increased resolution
+SQUARE_SIZE = HEIGHT // 8 # Base square size on height for a more consistent board size if aspect ratio changes
 
 # Colors - Updated for better contrast and a more modern feel
 LIGHT_COLOR = (238, 238, 210)  # Creamy white for light squares

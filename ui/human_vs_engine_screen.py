@@ -5,14 +5,16 @@ import chess
 from ui.base_screen import BaseScreen
 from game.chess_game_manager import ChessGameManager
 from engine.stockfish_engine import StockfishEngine
-from engine.simple_ai_engine import SimpleAIEngine # Ensure SimpleAIEngine is imported
-from engine.RandomMover import RandomMover # Import RandomMover
+from engine.simple_ai_engine import SimpleAIEngine
+from engine.RandomMover import RandomMover
+from engine.CapturePreferringEngine import CapturePreferringEngine # Import CapturePreferringEngine
 from config import (LIGHT_COLOR, DARK_COLOR, HIGHLIGHT_COLOR, LEGAL_MOVE_HIGHLIGHT_COLOR, SQUARE_SIZE,
                     TEXT_COLOR, TEXT_ON_LIGHT_BG_COLOR, BACKGROUND_COLOR, FONT_NAME,
                     FONT_SIZE_XLARGE, FONT_SIZE_LARGE, FONT_SIZE_MEDIUM, FONT_SIZE_SMALL,
                     BUTTON_COLOR, BUTTON_HOVER_COLOR, PADDING_SMALL, PADDING_MEDIUM, PADDING_LARGE,
                     BUTTON_HEIGHT_STD, MESSAGE_BOX_BG_COLOR, MESSAGE_BOX_BORDER_COLOR, BORDER_RADIUS_STD)
 from datetime import datetime
+import os # For os.path.exists
 
 class HumanVsEngineScreen(BaseScreen):
     """
@@ -266,14 +268,21 @@ class HumanVsEngineScreen(BaseScreen):
                                     self.engine = SimpleAIEngine(name=engine_name)
                                 elif engine_class_name == 'RandomMover':
                                     self.engine = RandomMover(name=engine_name)
+                                elif engine_class_name == 'CapturePreferringEngine':
+                                    self.engine = CapturePreferringEngine(name=engine_name)
                                 else:
                                     # Fallback for older "Simple AI" entries that might not have 'class'
-                                    if "Simple AI" in engine_name:
+                                    # or if class name is missing from DB for some reason.
+                                    if "SimpleAI" in engine_name: # General check
                                         self.engine = SimpleAIEngine(name=engine_name)
+                                    elif "RandomMover" in engine_name:
+                                        self.engine = RandomMover(name=engine_name)
+                                    elif "CapturePreferringEngine" in engine_name:
+                                         self.engine = CapturePreferringEngine(name=engine_name)
                                     else:
-                                        self.setup_message = f"Unknown internal engine class: {engine_class_name} for {engine_name}"
-                                        self.engine = None # Ensure engine is None
-                                        return True # Stay on setup
+                                        self.setup_message = f"Unknown or misconfigured internal engine: {engine_name} (Class: {engine_class_name})"
+                                        self.engine = None
+                                        return True
                             elif engine_path and os.path.exists(engine_path): # External UCI engine
                                 try:
                                     self.engine = StockfishEngine(engine_path, name=engine_name)
