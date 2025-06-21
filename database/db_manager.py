@@ -35,6 +35,7 @@ class DBManager:
         - engines: Stores details of AI engines.
         - tournaments: Stores details of each tournament.
         - tournament_games: Links games to tournaments and stores specific results for engine comparison.
+        # tournament_engine_stats: Stores per-engine performance stats for each tournament.
         """
         try:
             self.cursor.execute('''
@@ -71,7 +72,8 @@ class DBManager:
                     name TEXT UNIQUE NOT NULL,
                     version TEXT,
                     path TEXT,            -- Path to the engine executable (e.g., Stockfish)
-                    parameters TEXT       -- JSON string of engine parameters (e.g., {"Skill Level": 10})
+                    parameters TEXT,      -- JSON string of engine parameters (e.g., {"Skill Level": 10})
+                    elo INTEGER DEFAULT 1200 -- Added Elo rating with a default value
                 )
             ''')
             
@@ -103,6 +105,23 @@ class DBManager:
                 )
             ''')
 
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS tournament_engine_stats (
+                    stat_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tournament_id INTEGER NOT NULL,
+                    engine_id INTEGER NOT NULL,
+                    initial_elo INTEGER,
+                    final_elo INTEGER,
+                    wins INTEGER DEFAULT 0,
+                    losses INTEGER DEFAULT 0,
+                    draws INTEGER DEFAULT 0,
+                    points_scored REAL DEFAULT 0.0,
+                    FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id),
+                    FOREIGN KEY (engine_id) REFERENCES engines(engine_id),
+                    UNIQUE(tournament_id, engine_id) -- Ensure one entry per engine per tournament
+                )
+            ''')
+
             self.conn.commit()
             print("Database tables checked/created successfully.")
         except sqlite3.Error as e:
@@ -125,15 +144,28 @@ class DBManager:
         return result[0] if result else None
 
     def add_engine(self, name, version=None, path=None, parameters=None):
-        """Adds or updates an engine's details."""
+        """Adds or updates an engine's details. Initializes Elo to 1200 if new."""
         try:
             params_json = json.dumps(parameters) if parameters else None
-            self.cursor.execute("""
-                INSERT INTO engines (name, version, path, parameters) VALUES (?, ?, ?, ?)
-                ON CONFLICT(name) DO UPDATE SET version=excluded.version, path=excluded.path, parameters=excluded.parameters
-            """, (name, version, path, params_json))
+            # Check if engine exists to decide on insert or update for Elo
+            self.cursor.execute("SELECT engine_id, elo FROM engines WHERE name = ?", (name,))
+            existing_engine = self.cursor.fetchone()
+
+            if existing_engine:
+                # Engine exists, update without changing Elo unless specified (not typical here)
+                self.cursor.execute("""
+                    UPDATE engines SET version=?, path=?, parameters=? WHERE name=?
+                """, (version, path, params_json, name))
+                engine_id = existing_engine[0]
+            else:
+                # New engine, insert with default Elo
+                self.cursor.execute("""
+                    INSERT INTO engines (name, version, path, parameters, elo) VALUES (?, ?, ?, ?, ?)
+                """, (name, version, path, params_json, 1200)) # Default ELO 1200
+                engine_id = self.cursor.lastrowid
+
             self.conn.commit()
-            return self.cursor.lastrowid if self.cursor.rowcount > 0 else self.get_engine_id(name)
+            return engine_id
         except sqlite3.Error as e:
             print(f"Error adding/updating engine {name}: {e}")
             return None
@@ -144,15 +176,49 @@ class DBManager:
         result = self.cursor.fetchone()
         return result[0] if result else None
 
+    def get_engine_by_name(self, name: str):
+        """Retrieves full engine details by name, including elo."""
+        self.cursor.execute("SELECT engine_id, name, version, path, parameters, elo FROM engines WHERE name = ?", (name,))
+        row = self.cursor.fetchone()
+        if row:
+            return {
+                'engine_id': row[0],
+                'name': row[1],
+                'version': row[2],
+                'path': row[3],
+                'parameters': json.loads(row[4]) if row[4] else {},
+                'elo': row[5]
+            }
+        return None
+
+    def get_engine_elo(self, engine_id):
+        """Retrieves the Elo rating of an engine by its ID."""
+        self.cursor.execute("SELECT elo FROM engines WHERE engine_id = ?", (engine_id,))
+        result = self.cursor.fetchone()
+        return result[0] if result else None # Default to 1200 if not found or error?
+
+    def update_engine_elo(self, engine_id, new_elo):
+        """Updates the Elo rating of a specific engine."""
+        try:
+            self.cursor.execute("UPDATE engines SET elo = ? WHERE engine_id = ?", (new_elo, engine_id))
+            self.conn.commit()
+            if self.cursor.rowcount == 0:
+                print(f"Warning: No engine found with ID {engine_id} to update Elo.")
+            # else:
+                # print(f"Engine ID {engine_id} Elo updated to {new_elo}")
+        except sqlite3.Error as e:
+            print(f"Error updating Elo for engine ID {engine_id}: {e}")
+
     def get_all_engines(self):
-        """Retrieves all stored engine details."""
-        self.cursor.execute("SELECT engine_id, name, version, path, parameters FROM engines")
+        """Retrieves all stored engine details, including Elo."""
+        self.cursor.execute("SELECT engine_id, name, version, path, parameters, elo FROM engines")
         return [{
             'engine_id': row[0],
             'name': row[1],
             'version': row[2],
             'path': row[3],
-            'parameters': json.loads(row[4]) if row[4] else {}
+            'parameters': json.loads(row[4]) if row[4] else {},
+            'elo': row[5]
         } for row in self.cursor.fetchall()]
 
     def save_game(self, game_data):
@@ -288,6 +354,42 @@ class DBManager:
             LEFT JOIN engines bw ON tg.black_engine_id = bw.engine_id
             WHERE tg.tournament_id = ? ORDER BY tg.round_number
         """, (tournament_id,))
+        columns = [description[0] for description in self.cursor.description]
+        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
+
+    def save_tournament_engine_stats(self, tournament_id, engine_id, initial_elo, final_elo, wins, losses, draws, points_scored):
+        """Saves or updates the performance statistics for an engine in a specific tournament."""
+        try:
+            self.cursor.execute("""
+                INSERT INTO tournament_engine_stats
+                    (tournament_id, engine_id, initial_elo, final_elo, wins, losses, draws, points_scored)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tournament_id, engine_id) DO UPDATE SET
+                    final_elo = excluded.final_elo,
+                    wins = excluded.wins,
+                    losses = excluded.losses,
+                    draws = excluded.draws,
+                    points_scored = excluded.points_scored
+            """, (tournament_id, engine_id, initial_elo, final_elo, wins, losses, draws, points_scored))
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Error saving tournament engine stats for tournament {tournament_id}, engine {engine_id}: {e}")
+
+    def get_tournament_engine_stats(self, tournament_id):
+        """Retrieves all engine performance statistics for a given tournament."""
+        self.cursor.execute("""
+            SELECT tes.*, e.name as engine_name
+            FROM tournament_engine_stats tes
+            JOIN engines e ON tes.engine_id = e.engine_id
+            WHERE tes.tournament_id = ?
+            ORDER BY tes.points_scored DESC, tes.final_elo DESC
+        """, (tournament_id,))
+        columns = [description[0] for description in self.cursor.description]
+        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
+
+    def get_all_tournaments(self):
+        """Retrieves basic details for all tournaments."""
+        self.cursor.execute("SELECT tournament_id, name, start_date, status FROM tournaments ORDER BY start_date DESC")
         columns = [description[0] for description in self.cursor.description]
         return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
 

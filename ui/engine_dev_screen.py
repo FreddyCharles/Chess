@@ -12,6 +12,9 @@ from config import (BACKGROUND_COLOR, BUTTON_COLOR, BUTTON_HOVER_COLOR, TEXT_COL
                     PADDING_SMALL, PADDING_MEDIUM, PADDING_LARGE, BUTTON_HEIGHT_STD, INPUT_HEIGHT_STD,
                     BORDER_RADIUS_STD, MESSAGE_BOX_BG_COLOR, MESSAGE_BOX_BORDER_COLOR)
 import os
+import importlib
+import inspect
+from engine.base_engine import BaseChessEngine # For class type checking
 from datetime import datetime # For default tournament name
 
 class EngineDevScreen(BaseScreen):
@@ -276,13 +279,72 @@ class EngineDevScreen(BaseScreen):
             else:
                 self.tournament_message = f"Stockfish executable not found at '{stockfish_path}'. Please check path."
         elif action == "START_TOURNAMENT":
+            self._discover_and_register_engines() # Discover before starting
             self._start_tournament()
         elif action == "VIEW_TOURNAMENT_HISTORY":
             self.app_state_manager.set_state("VIEW_STATS") # Can reuse stats screen for this
 
+    def _discover_and_register_engines(self):
+        """Scans the 'engine' directory for Python-based engines and registers them if new."""
+        engine_dir = "engine"
+        discovered_engine_classes = []
+        engine_files = [f for f in os.listdir(engine_dir) if f.endswith(".py") and f != "__init__.py" and f != "base_engine.py"]
+
+        for file_name in engine_files:
+            module_name = f"{engine_dir}.{file_name[:-3]}"
+            try:
+                module = importlib.import_module(module_name)
+                for attribute_name in dir(module):
+                    attribute = getattr(module, attribute_name)
+                    if inspect.isclass(attribute) and \
+                       issubclass(attribute, BaseChessEngine) and \
+                       attribute is not BaseChessEngine and \
+                       attribute is not StockfishEngine: # Exclude Stockfish as it's handled differently
+                        discovered_engine_classes.append(attribute)
+            except ImportError as e:
+                print(f"Error importing engine module {module_name}: {e}")
+
+        if not discovered_engine_classes:
+            print("No new Python engine classes found in engine directory.")
+            # self.tournament_message = "No Python engines found for auto-discovery." # Optional message
+            return
+
+        self._load_engines_from_db() # Refresh current DB list
+        db_engine_names = {eng['name'] for eng in self.engines_in_db}
+        db_engine_classes = {eng['parameters'].get('class') for eng in self.engines_in_db if isinstance(eng.get('parameters'), dict)}
+
+
+        added_new = False
+        for eng_class in discovered_engine_classes:
+            class_name = eng_class.__name__
+            # Try to create a unique-ish default name
+            default_engine_name = f"{class_name}-{sum(1 for name in db_engine_names if name.startswith(class_name)) + 1}"
+
+            # Check if this class is already represented in the DB
+            if class_name not in db_engine_classes:
+                print(f"Discovered new engine class: {class_name}. Registering as '{default_engine_name}'.")
+                self.db_manager.add_engine(
+                    name=default_engine_name,
+                    version="1.0",  # Default version
+                    path=None,      # Internal engines have no path
+                    parameters={"type": "internal", "class": class_name}
+                )
+                added_new = True
+            # else:
+                # print(f"Engine class {class_name} seems to be already registered.")
+
+        if added_new:
+            self._load_engines_from_db() # Reload to reflect newly added engines
+            self.tournament_message = "New local engines discovered and registered!"
+        # else:
+            # self.tournament_message = "All local engines already registered."
+
+
     def _start_tournament(self):
+        # Engines are now loaded/reloaded after discovery if any were added.
+        # The tournament will use all engines currently in self.engines_in_db.
         if len(self.engines_in_db) < 2:
-            self.tournament_message = "Need at least 2 engines for a tournament!"
+            self.tournament_message = "Need at least 2 registered engines for a tournament!"
             return
 
         tournament_name = self.tournament_name_input.strip()
