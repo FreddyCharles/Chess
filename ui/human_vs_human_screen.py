@@ -3,7 +3,10 @@ import pygame
 import chess
 from ui.base_screen import BaseScreen
 from game.chess_game_manager import ChessGameManager
-from config import LIGHT_COLOR, DARK_COLOR, HIGHLIGHT_COLOR, SQUARE_SIZE, TEXT_COLOR, BACKGROUND_COLOR, FONT_NAME
+from config import (LIGHT_COLOR, DARK_COLOR, HIGHLIGHT_COLOR, LEGAL_MOVE_HIGHLIGHT_COLOR, SQUARE_SIZE,
+                    TEXT_COLOR, BACKGROUND_COLOR, FONT_NAME, FONT_SIZE_LARGE, BUTTON_COLOR,
+                    BUTTON_HOVER_COLOR, PADDING_MEDIUM, BUTTON_HEIGHT_STD, TEXT_ON_LIGHT_BG_COLOR,
+                    MESSAGE_BOX_BG_COLOR, MESSAGE_BOX_BORDER_COLOR)
 from datetime import datetime
 
 class HumanVsHumanScreen(BaseScreen):
@@ -20,8 +23,7 @@ class HumanVsHumanScreen(BaseScreen):
         self.end_time = None
         
         # For displaying messages (e.g., game over)
-        # Use FONT_NAME from config directly, as self.font is a pygame.font.Font object
-        self.message_font = pygame.font.SysFont(FONT_NAME, 40, bold=True)
+        self.message_font = pygame.font.SysFont(FONT_NAME, FONT_SIZE_LARGE, bold=True) # Use FONT_SIZE_LARGE from config
         self.message = ""
 
     def reset_game(self):
@@ -43,38 +45,62 @@ class HumanVsHumanScreen(BaseScreen):
 
         # Highlight selected square
         if self.selected_square is not None:
-            self._highlight_square(surface, self.selected_square, (255, 255, 0, 100)) # Yellow highlight
+            self._highlight_square(surface, self.selected_square, HIGHLIGHT_COLOR)
 
         # Highlight legal moves from selected square
         if self.selected_square is not None:
-            self._highlight_legal_moves(surface, self.selected_square, HIGHLIGHT_COLOR)
+            self._highlight_legal_moves(surface, self.selected_square, LEGAL_MOVE_HIGHLIGHT_COLOR)
             
         # Draw pieces
         self._draw_pieces(surface)
 
         # Draw game over message if applicable
         if self.game_over and self.message:
-            self._draw_message_box(surface, self.message)
+            # Use the generalized message box from BaseScreen
+            super()._draw_message_box(surface, self.message, self.message_font,
+                                      text_color=TEXT_COLOR,
+                                      bg_color=MESSAGE_BOX_BG_COLOR,
+                                      border_color=MESSAGE_BOX_BORDER_COLOR,
+                                      padding=PADDING_MEDIUM)
 
-        # Draw a "Back to Menu" button
-        back_button_rect = pygame.Rect(self.screen_width - 180, 20, 160, 40)
-        button_surface, _, _ = self.create_button("Back to Menu", back_button_rect, (200, 50, 50), (255, 80, 80), "MENU")
+
+        # Draw a "Back to Menu" button - improved styling and positioning
+        back_button_width = 180
+        back_button_rect = pygame.Rect(self.screen_width - back_button_width - PADDING_MEDIUM, PADDING_MEDIUM, back_button_width, BUTTON_HEIGHT_STD)
+        # Using standard button colors from config
+        button_surface, _, _ = self.create_button(
+            "Back to Menu", back_button_rect, BUTTON_COLOR, BUTTON_HOVER_COLOR, "MENU",
+            text_color=TEXT_ON_LIGHT_BG_COLOR
+        )
         surface.blit(button_surface, back_button_rect)
 
 
     def handle_event(self, event):
         """Handles events specific to the human vs human game."""
-        if event.type == pygame.MOUSEBUTTONDOWN and not self.game_over:
-            # Get clicked square
-            col = event.pos[0] // SQUARE_SIZE
-            row = event.pos[1] // SQUARE_SIZE
-            clicked_square = chess.square(col, 7 - row) # Convert Pygame row to chess rank
+        if event.type == pygame.MOUSEBUTTONDOWN: # Process clicks even if game_over (for back button)
 
-            # Check for "Back to Menu" button click
-            back_button_rect = pygame.Rect(self.screen_width - 180, 20, 160, 40)
+            # Check for "Back to Menu" button click first
+            back_button_width = 180
+            back_button_rect = pygame.Rect(self.screen_width - back_button_width - PADDING_MEDIUM, PADDING_MEDIUM, back_button_width, BUTTON_HEIGHT_STD)
             if back_button_rect.collidepoint(event.pos):
                 self.app_state_manager.set_state("MENU")
                 self.reset_game() # Reset game when going back to menu
+                return True
+
+            if self.game_over: # If game is over, only back button is active on this screen
+                return False
+
+            # Get clicked square (only if game is not over)
+            col = event.pos[0] // SQUARE_SIZE
+            row = event.pos[1] // SQUARE_SIZE
+            # Ensure click is within the board boundaries
+            if not (0 <= col < 8 and 0 <= row < 8):
+                return False # Click was outside the board
+            clicked_square = chess.square(col, 7 - row) # Convert Pygame row to chess rank
+
+            board = self.game_manager.get_board_object()
+
+            if self.selected_square is None:
                 return True
 
             board = self.game_manager.get_board_object()
@@ -179,14 +205,6 @@ class HumanVsHumanScreen(BaseScreen):
         for to_square in legal_destinations:
             self._highlight_square(surface, to_square, color)
 
-    def _draw_message_box(self, surface, message):
-        """Draws a message box in the center of the screen."""
-        text_surface = self.message_font.render(message, True, TEXT_COLOR)
-        text_rect = text_surface.get_rect(center=(self.screen_width / 2, self.screen_height / 2))
-        
-        # Draw a semi-transparent background for the message
-        background_rect = text_rect.inflate(40, 30)
-        pygame.draw.rect(surface, (255, 255, 255, 200), background_rect, border_radius=15)
-        pygame.draw.rect(surface, (0, 0, 0), background_rect, 2, border_radius=15) # Border
-        
-        surface.blit(text_surface, text_rect)
+    # Removed: def _draw_message_box(self, surface, message):
+    # This is now handled by the BaseScreen._draw_message_box method
+    # and called via super()._draw_message_box(...) in the draw method.

@@ -3,8 +3,14 @@ import pygame
 import chess
 from ui.base_screen import BaseScreen
 from game.chess_game_manager import ChessGameManager
-from engine.stockfish_engine import StockfishEngine # Example engine
-from config import LIGHT_COLOR, DARK_COLOR, HIGHLIGHT_COLOR, SQUARE_SIZE, TEXT_COLOR, BACKGROUND_COLOR, FONT_NAME, FONT_SIZE_LARGE, FONT_SIZE_MEDIUM, FONT_SIZE_SMALL, BUTTON_COLOR, BUTTON_HOVER_COLOR
+from engine.stockfish_engine import StockfishEngine
+from engine.simple_ai_engine import SimpleAIEngine # Ensure SimpleAIEngine is imported
+from engine.RandomMover import RandomMover # Import RandomMover
+from config import (LIGHT_COLOR, DARK_COLOR, HIGHLIGHT_COLOR, LEGAL_MOVE_HIGHLIGHT_COLOR, SQUARE_SIZE,
+                    TEXT_COLOR, TEXT_ON_LIGHT_BG_COLOR, BACKGROUND_COLOR, FONT_NAME,
+                    FONT_SIZE_XLARGE, FONT_SIZE_LARGE, FONT_SIZE_MEDIUM, FONT_SIZE_SMALL,
+                    BUTTON_COLOR, BUTTON_HOVER_COLOR, PADDING_SMALL, PADDING_MEDIUM, PADDING_LARGE,
+                    BUTTON_HEIGHT_STD, MESSAGE_BOX_BG_COLOR, MESSAGE_BOX_BORDER_COLOR, BORDER_RADIUS_STD)
 from datetime import datetime
 
 class HumanVsEngineScreen(BaseScreen):
@@ -27,8 +33,9 @@ class HumanVsEngineScreen(BaseScreen):
         self.waiting_for_engine = False # Flag to prevent human input while engine thinks
 
         # Message display
-        self.message_font = pygame.font.SysFont(FONT_NAME, 40, bold=True)
+        self.message_font = pygame.font.SysFont(FONT_NAME, FONT_SIZE_LARGE, bold=True) # Use FONT_SIZE_LARGE
         self.message = ""
+        self.setup_message = "" # For messages on the setup screen
 
         self.setup_complete = False # Flag to indicate if engine selection is done
 
@@ -47,30 +54,43 @@ class HumanVsEngineScreen(BaseScreen):
             self.engines_available = self.db_manager.get_all_engines()
         
     def _create_selection_buttons(self):
-        """Creates UI elements for engine selection and start game."""
+        """Creates UI elements for engine selection and start game, with improved layout."""
         self.selection_buttons = []
-        button_width, button_height = 180, 50
         x_center = self.screen_width // 2
-        y_start = self.screen_height // 2 - 100
 
-        # Engine selection display
-        self.engine_display_rect = pygame.Rect(x_center - 200, y_start, 400, 60)
+        # Title and general layout
+        top_offset = 150 # Space for title
+        content_width = 500 # Width for the central content block
+        element_spacing = PADDING_MEDIUM
 
-        # Prev/Next engine buttons
-        prev_rect = pygame.Rect(self.engine_display_rect.left - 60, y_start, 50, 60)
-        next_rect = pygame.Rect(self.engine_display_rect.right + 10, y_start, 50, 60)
-        self.selection_buttons.append({"text": "<", "rect": prev_rect, "action": "PREV_ENGINE"})
-        self.selection_buttons.append({"text": ">", "rect": next_rect, "action": "NEXT_ENGINE"})
+        # Engine selection (display box + prev/next buttons)
+        engine_select_y = top_offset
+        engine_display_width = content_width - 140 # Accommodate prev/next buttons
+        self.engine_display_rect = pygame.Rect(x_center - engine_display_width // 2, engine_select_y, engine_display_width, BUTTON_HEIGHT_STD)
 
-        # Start game button
-        start_game_rect = pygame.Rect(x_center - 100, y_start + 100, 200, 60)
-        self.selection_buttons.append({"text": "Start Game", "rect": start_game_rect, "action": "START_GAME"})
+        prev_button_width = 50
+        prev_rect = pygame.Rect(self.engine_display_rect.left - prev_button_width - element_spacing, engine_select_y, prev_button_width, BUTTON_HEIGHT_STD)
+        next_rect = pygame.Rect(self.engine_display_rect.right + element_spacing, engine_select_y, prev_button_width, BUTTON_HEIGHT_STD)
+        self.selection_buttons.append({"text": "<", "rect": prev_rect, "action": "PREV_ENGINE", "size": FONT_SIZE_LARGE})
+        self.selection_buttons.append({"text": ">", "rect": next_rect, "action": "NEXT_ENGINE", "size": FONT_SIZE_LARGE})
 
-        # Choose color buttons
-        white_rect = pygame.Rect(x_center - 150, y_start + 180, 140, 50)
-        black_rect = pygame.Rect(x_center + 10, y_start + 180, 140, 50)
-        self.selection_buttons.append({"text": "Play White", "rect": white_rect, "action": "PLAY_WHITE"})
-        self.selection_buttons.append({"text": "Play Black", "rect": black_rect, "action": "PLAY_BLACK"})
+        # Choose color buttons (side-by-side)
+        color_button_y = self.engine_display_rect.bottom + PADDING_LARGE
+        color_button_width = (content_width - element_spacing) // 2
+        white_rect = pygame.Rect(x_center - content_width // 2, color_button_y, color_button_width, BUTTON_HEIGHT_STD)
+        black_rect = pygame.Rect(white_rect.right + element_spacing, color_button_y, color_button_width, BUTTON_HEIGHT_STD)
+        self.selection_buttons.append({"text": "Play as White", "rect": white_rect, "action": "PLAY_WHITE"})
+        self.selection_buttons.append({"text": "Play as Black", "rect": black_rect, "action": "PLAY_BLACK"})
+
+        # Start game button (larger, centered below color selection)
+        start_game_y = black_rect.bottom + PADDING_LARGE
+        start_game_width = content_width // 1.5
+        start_game_rect = pygame.Rect(x_center - start_game_width // 2, start_game_y, start_game_width, BUTTON_HEIGHT_STD + 10) # Slightly taller
+        self.selection_buttons.append({"text": "Start Game", "rect": start_game_rect, "action": "START_GAME", "size": FONT_SIZE_LARGE})
+
+        # Store the y position of the last button for drawing color choice text
+        self.last_button_y = start_game_rect.bottom
+
 
     def reset_game(self):
         """Resets the game state for a new human vs. engine game."""
@@ -98,67 +118,100 @@ class HumanVsEngineScreen(BaseScreen):
             self._draw_game_screen(surface)
 
     def _draw_setup_screen(self, surface):
-        """Draws the engine selection and setup UI."""
+        """Draws the engine selection and setup UI with improved styling."""
         surface.fill(BACKGROUND_COLOR)
-        title_surface = self.render_text("Human vs. Engine Setup", size=FONT_SIZE_LARGE)
-        title_rect = title_surface.get_rect(center=(self.screen_width // 2, 100))
+        title_surface = self.render_text("Human vs. Engine Setup", color=TEXT_COLOR, size=FONT_SIZE_XLARGE, bold=True)
+        title_rect = title_surface.get_rect(center=(self.screen_width // 2, PADDING_LARGE * 2))
         surface.blit(title_surface, title_rect)
 
-        # Display selected engine name
-        current_engine = self.engines_available[self.selected_engine_idx] if self.engines_available else {"name": "No Engines"}
-        engine_name_surface = self.render_text(f"Engine: {current_engine['name']}", size=FONT_SIZE_MEDIUM)
-        engine_name_rect = engine_name_surface.get_rect(center=self.engine_display_rect.center)
-        pygame.draw.rect(surface, (200, 200, 200), self.engine_display_rect, border_radius=10)
-        surface.blit(engine_name_surface, engine_name_rect)
+        # Display selected engine name in a styled box
+        current_engine_data = self.engines_available[self.selected_engine_idx] if self.engines_available else {"name": "No Engines Available"}
+        engine_text = f"Engine: {current_engine_data['name']}"
+        # Using a slightly lighter background for the display box for contrast with main BG
+        self.draw_text_box(surface, engine_text, self.engine_display_rect,
+                           text_color=TEXT_COLOR, bg_color=(60,60,60), border_color=(100,100,100),
+                           font_size=FONT_SIZE_MEDIUM, border_radius=BORDER_RADIUS_STD)
 
         # Draw selection buttons
         for btn_data in self.selection_buttons:
             button_surface, button_rect, _ = self.create_button(
-                btn_data["text"], btn_data["rect"], BUTTON_COLOR, BUTTON_HOVER_COLOR, btn_data["action"]
+                btn_data["text"], btn_data["rect"], BUTTON_COLOR, BUTTON_HOVER_COLOR, btn_data["action"],
+                text_color=TEXT_ON_LIGHT_BG_COLOR, text_size=btn_data.get("size", FONT_SIZE_MEDIUM)
             )
             surface.blit(button_surface, button_rect)
         
-        # Display chosen color
-        color_text = "You play: White" if self.human_color == chess.WHITE else "You play: Black"
-        color_surface = self.render_text(color_text, size=FONT_SIZE_SMALL)
-        color_rect = color_surface.get_rect(center=(self.screen_width // 2, self.engine_display_rect.bottom + 250))
+        # Display chosen color text
+        color_choice_text = "Playing as: White" if self.human_color == chess.WHITE else "Playing as: Black"
+        color_surface = self.render_text(color_choice_text, color=TEXT_COLOR, size=FONT_SIZE_MEDIUM)
+        color_rect = color_surface.get_rect(center=(self.screen_width // 2, self.last_button_y + PADDING_LARGE + FONT_SIZE_MEDIUM // 2))
         surface.blit(color_surface, color_rect)
 
-        # Back to menu button
-        back_button_rect = pygame.Rect(20, 20, 160, 40)
-        button_surface, _, _ = self.create_button("Back to Menu", back_button_rect, (200, 50, 50), (255, 80, 80), "MENU")
+        # Display setup message if any (e.g., "No engines available")
+        if self.setup_message:
+            msg_surface = self.render_text(self.setup_message, color=(255,100,100), size=FONT_SIZE_SMALL) # Error/warning color
+            msg_rect = msg_surface.get_rect(center=(self.screen_width // 2, color_rect.bottom + PADDING_MEDIUM + FONT_SIZE_SMALL // 2))
+            surface.blit(msg_surface, msg_rect)
+
+
+        # Back to menu button (top-left)
+        back_button_width = 180
+        back_button_rect = pygame.Rect(PADDING_MEDIUM, PADDING_MEDIUM, back_button_width, BUTTON_HEIGHT_STD)
+        button_surface, _, _ = self.create_button(
+            "Back to Menu", back_button_rect, BUTTON_COLOR, BUTTON_HOVER_COLOR, "MENU",
+            text_color=TEXT_ON_LIGHT_BG_COLOR
+        )
         surface.blit(button_surface, back_button_rect)
 
 
     def _draw_game_screen(self, surface):
-        """Draws the game board and pieces."""
-        # Draw board
+        """Draws the game board, pieces, and game-related messages with new styling."""
+        surface.fill(BACKGROUND_COLOR) # Ensure game screen also has BG color
+
+        # Draw board (centered, or with padding if screen is larger than board)
+        board_area_size = 8 * SQUARE_SIZE
+        board_offset_x = (self.screen_width - board_area_size) // 2
+        board_offset_y = (self.screen_height - board_area_size) // 2
+
         for row in range(8):
             for col in range(8):
                 color = LIGHT_COLOR if (row + col) % 2 == 0 else DARK_COLOR
-                pygame.draw.rect(surface, color, (col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE))
+                pygame.draw.rect(surface, color, (board_offset_x + col * SQUARE_SIZE, board_offset_y + row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE))
 
         # Highlight selected square
         if self.selected_square is not None:
-            self._highlight_square(surface, self.selected_square, (255, 255, 0, 100)) # Yellow highlight
+            self._highlight_square_on_board(surface, self.selected_square, HIGHLIGHT_COLOR, board_offset_x, board_offset_y)
 
         # Highlight legal moves from selected square
         if self.selected_square is not None:
-            self._highlight_legal_moves(surface, self.selected_square, HIGHLIGHT_COLOR)
+            self._highlight_legal_moves_on_board(surface, self.selected_square, LEGAL_MOVE_HIGHLIGHT_COLOR, board_offset_x, board_offset_y)
             
-        # Draw pieces
-        self._draw_pieces(surface)
+        # Draw pieces (with board offset)
+        self._draw_pieces_on_board(surface, board_offset_x, board_offset_y)
 
-        # Draw game over message if applicable
+        # Draw game over message or "Engine thinking" message using generalized method
+        message_to_draw = ""
         if self.game_over and self.message:
-            self._draw_message_box(surface, self.message)
+            message_to_draw = self.message
         elif self.waiting_for_engine:
-            self._draw_message_box(surface, "Engine is thinking...")
+            message_to_draw = "Engine is thinking..."
 
-        # Draw "Back to Menu" button
-        back_button_rect = pygame.Rect(self.screen_width - 180, 20, 160, 40)
-        button_surface, _, _ = self.create_button("Back to Menu", back_button_rect, (200, 50, 50), (255, 80, 80), "MENU")
-        surface.blit(button_surface, back_button_rect)
+        if message_to_draw:
+            super()._draw_message_box(surface, message_to_draw, self.message_font,
+                                      text_color=TEXT_COLOR,
+                                      bg_color=MESSAGE_BOX_BG_COLOR,
+                                      border_color=MESSAGE_BOX_BORDER_COLOR,
+                                      padding=PADDING_MEDIUM)
+
+
+        # Draw "Back to Menu" button (top-right on game screen for consistency or specific placement)
+        back_button_width = 180
+        # Place it in the top right corner of the game screen
+        game_back_button_rect = pygame.Rect(self.screen_width - back_button_width - PADDING_MEDIUM, PADDING_MEDIUM, back_button_width, BUTTON_HEIGHT_STD)
+        button_surface, _, _ = self.create_button(
+            "Back to Menu", game_back_button_rect, BUTTON_COLOR, BUTTON_HOVER_COLOR, "MENU_FROM_GAME",
+             text_color=TEXT_ON_LIGHT_BG_COLOR
+        ) # Different action if needed
+        surface.blit(button_surface, game_back_button_rect)
 
 
     def handle_event(self, event):
@@ -172,8 +225,11 @@ class HumanVsEngineScreen(BaseScreen):
         """Handles events on the setup screen."""
         if event.type == pygame.MOUSEBUTTONDOWN:
             mouse_pos = event.pos
-            # Back to menu button
-            back_button_rect = pygame.Rect(20, 20, 160, 40)
+            self.setup_message = "" # Clear previous messages
+
+            # Back to menu button (top-left)
+            back_button_width = 180
+            back_button_rect = pygame.Rect(PADDING_MEDIUM, PADDING_MEDIUM, back_button_width, BUTTON_HEIGHT_STD)
             if back_button_rect.collidepoint(mouse_pos):
                 self.app_state_manager.set_state("MENU")
                 return True
@@ -182,9 +238,13 @@ class HumanVsEngineScreen(BaseScreen):
                 if btn_data["rect"].collidepoint(mouse_pos):
                     action = btn_data["action"]
                     if action == "PREV_ENGINE":
-                        self.selected_engine_idx = (self.selected_engine_idx - 1 + len(self.engines_available)) % len(self.engines_available)
+                        if self.engines_available:
+                            self.selected_engine_idx = (self.selected_engine_idx - 1 + len(self.engines_available)) % len(self.engines_available)
+                        else: self.setup_message = "No engines loaded."
                     elif action == "NEXT_ENGINE":
-                        self.selected_engine_idx = (self.selected_engine_idx + 1) % len(self.engines_available)
+                        if self.engines_available:
+                            self.selected_engine_idx = (self.selected_engine_idx + 1) % len(self.engines_available)
+                        else: self.setup_message = "No engines loaded."
                     elif action == "PLAY_WHITE":
                         self.human_color = chess.WHITE
                         self.engine_color = chess.BLACK
@@ -194,40 +254,82 @@ class HumanVsEngineScreen(BaseScreen):
                     elif action == "START_GAME":
                         if self.engines_available:
                             selected_engine_data = self.engines_available[self.selected_engine_idx]
-                            # For simplicity, always use StockfishEngine for external, or SimpleAI for internal
-                            if selected_engine_data.get('path'): # Assumes path means external UCI
-                                self.engine = StockfishEngine(selected_engine_data['path'], name=selected_engine_data['name'])
-                            else: # Assume internal/dummy if no path
-                                from engine.simple_ai_engine import SimpleAIEngine
-                                self.engine = SimpleAIEngine(name=selected_engine_data['name'])
+                            engine_type = selected_engine_data.get('type', 'external')
+                            engine_path = selected_engine_data.get('path')
+                            engine_name = selected_engine_data['name']
+                            engine_class_name = selected_engine_data.get('config_params', {}).get('class') if isinstance(selected_engine_data.get('config_params'), dict) else None
+
+
+                            if engine_type == 'internal':
+                                if engine_class_name == 'SimpleAIEngine':
+                                    self.engine = SimpleAIEngine(name=engine_name)
+                                elif engine_class_name == 'RandomMover':
+                                    self.engine = RandomMover(name=engine_name)
+                                else:
+                                    # Fallback for older "Simple AI" entries that might not have 'class'
+                                    if "Simple AI" in engine_name:
+                                        self.engine = SimpleAIEngine(name=engine_name)
+                                    else:
+                                        self.setup_message = f"Unknown internal engine class: {engine_class_name} for {engine_name}"
+                                        self.engine = None # Ensure engine is None
+                                        return True # Stay on setup
+                            elif engine_path and os.path.exists(engine_path): # External UCI engine
+                                try:
+                                    self.engine = StockfishEngine(engine_path, name=engine_name)
+                                    if not self.engine.engine: # If stockfish process failed to start
+                                        self.setup_message = f"Failed to start Stockfish: {engine_name}"
+                                        self.engine = None
+                                        return True
+                                except Exception as e:
+                                     self.setup_message = f"Error with Stockfish {engine_name}: {e}"
+                                     self.engine = None
+                                     return True
+                            else:
+                                self.setup_message = f"Engine '{engine_name}' type '{engine_type}' misconfigured or path missing/invalid."
+                                self.engine = None
+                                return True
                             
-                            self.setup_complete = True
-                            self.reset_game() # Start the actual game
-                            print(f"Starting Human vs. {self.engine.name}. Human plays {'White' if self.human_color == chess.WHITE else 'Black'}")
+                            if self.engine:
+                                self.setup_complete = True
+                                self.reset_game()
+                                print(f"Starting Human vs. {self.engine.name}. Human plays {'White' if self.human_color == chess.WHITE else 'Black'}")
+                            # If self.engine is None here, setup_message should have been set.
                         else:
-                            self.message = "No engines available. Add one in Engine Dev mode."
+                            self.setup_message = "No engines available. Add one in Engine Dev screen."
                     return True
         return False
 
 
     def _handle_game_event(self, event):
         """Handles events during the human vs engine game."""
-        if event.type == pygame.MOUSEBUTTONDOWN and not self.game_over and not self.waiting_for_engine:
-            # Check for "Back to Menu" button click
-            back_button_rect = pygame.Rect(self.screen_width - 180, 20, 160, 40)
-            if back_button_rect.collidepoint(event.pos):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            # Back to Menu button (top-right on game screen)
+            back_button_width = 180
+            game_back_button_rect = pygame.Rect(self.screen_width - back_button_width - PADDING_MEDIUM, PADDING_MEDIUM, back_button_width, BUTTON_HEIGHT_STD)
+            if game_back_button_rect.collidepoint(event.pos):
                 self.app_state_manager.set_state("MENU")
-                self.reset_game()
-                self.setup_complete = False # Go back to setup screen
+                self.reset_game() # Reset game logic
+                self.setup_complete = False # Go back to setup screen appearance
                 return True
 
-            col = event.pos[0] // SQUARE_SIZE
-            row = event.pos[1] // SQUARE_SIZE
-            clicked_square = chess.square(col, 7 - row)
+            if self.game_over or self.waiting_for_engine: # No board interaction if game over or engine thinking
+                return False
 
+            # Board interaction
+            board_area_size = 8 * SQUARE_SIZE
+            board_offset_x = (self.screen_width - board_area_size) // 2
+            board_offset_y = (self.screen_height - board_area_size) // 2
+
+            col = (event.pos[0] - board_offset_x) // SQUARE_SIZE
+            row = (event.pos[1] - board_offset_y) // SQUARE_SIZE
+
+            if not (0 <= col < 8 and 0 <= row < 8): # Click outside board area
+                return False
+
+            clicked_square = chess.square(col, 7 - row)
             board = self.game_manager.get_board_object()
 
-            if board.turn != self.human_color: # Only allow human moves on human's turn
+            if board.turn != self.human_color:
                 return False
 
             if self.selected_square is None:
@@ -323,44 +425,40 @@ class HumanVsEngineScreen(BaseScreen):
         self.app_state_manager.db_manager.save_game(game_data)
         print("Human vs. Engine game saved to database.")
 
-    # --- Helper drawing functions (reused from HumanVsHumanScreen) ---
-    def _draw_pieces(self, surface):
-        """Draws chess pieces on the board, correctly scaled and centered."""
+    # --- Helper drawing functions, adapted for board offset ---
+    def _draw_pieces_on_board(self, surface, offset_x, offset_y):
+        """Draws chess pieces on the board, correctly scaled, centered, and offset."""
         board = self.game_manager.get_board_object()
-        offset = (SQUARE_SIZE - self.piece_images['p'].get_width()) // 2
+        piece_offset = (SQUARE_SIZE - self.piece_images['p'].get_width()) // 2
         
-        for row in range(8):
-            for col in range(8):
-                square = chess.square(col, 7 - row)
+        for r in range(8): # Pygame row
+            for c in range(8): # Pygame col
+                square = chess.square(c, 7 - r) # Chess square
                 piece = board.piece_at(square)
                 if piece:
                     symbol = piece.symbol()
                     if symbol in self.piece_images:
-                        surface.blit(self.piece_images[symbol], (col * SQUARE_SIZE + offset, row * SQUARE_SIZE + offset))
+                        surface.blit(self.piece_images[symbol],
+                                     (offset_x + c * SQUARE_SIZE + piece_offset,
+                                      offset_y + r * SQUARE_SIZE + piece_offset))
                     else:
                         print(f"Warning: Missing image for piece symbol: {symbol}")
 
-    def _highlight_square(self, surface, square, color):
-        """Highlights a specific square on the board."""
+    def _highlight_square_on_board(self, surface, square, color, offset_x, offset_y):
+        """Highlights a specific square on the board, considering board offset."""
         if square is not None:
-            col, row = chess.square_file(square), 7 - chess.square_rank(square)
-            highlight = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
-            highlight.fill(color)
-            surface.blit(highlight, (col * SQUARE_SIZE, row * SQUARE_SIZE))
+            # Convert chess square to Pygame col, row
+            col = chess.square_file(square)
+            row = 7 - chess.square_rank(square)
 
-    def _highlight_legal_moves(self, surface, from_square, color):
-        """Highlights all legal destination squares for a piece on from_square."""
+            highlight_surface = pygame.Surface((SQUARE_SIZE, SQUARE_SIZE), pygame.SRCALPHA)
+            highlight_surface.fill(color)
+            surface.blit(highlight_surface, (offset_x + col * SQUARE_SIZE, offset_y + row * SQUARE_SIZE))
+
+    def _highlight_legal_moves_on_board(self, surface, from_square, color, offset_x, offset_y):
+        """Highlights all legal destination squares, considering board offset."""
         legal_destinations = self.game_manager.get_legal_moves_for_square(from_square)
         for to_square in legal_destinations:
-            self._highlight_square(surface, to_square, color)
+            self._highlight_square_on_board(surface, to_square, color, offset_x, offset_y)
 
-    def _draw_message_box(self, surface, message):
-        """Draws a message box in the center of the screen."""
-        text_surface = self.message_font.render(message, True, TEXT_COLOR)
-        text_rect = text_surface.get_rect(center=(self.screen_width / 2, self.screen_height / 2))
-        
-        background_rect = text_rect.inflate(40, 30)
-        pygame.draw.rect(surface, (255, 255, 255, 200), background_rect, border_radius=15)
-        pygame.draw.rect(surface, (0, 0, 0), background_rect, 2, border_radius=15)
-        
-        surface.blit(text_surface, text_rect)
+    # _draw_message_box is inherited from BaseScreen and used via super()._draw_message_box(...)

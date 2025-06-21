@@ -1,7 +1,8 @@
 # ui/menu_screen.py
 import pygame
 from ui.base_screen import BaseScreen
-from config import BACKGROUND_COLOR, BUTTON_COLOR, BUTTON_HOVER_COLOR, TEXT_COLOR, FONT_SIZE_LARGE, FONT_NAME # Import FONT_NAME
+from config import (BACKGROUND_COLOR, BUTTON_COLOR, BUTTON_HOVER_COLOR, TEXT_COLOR,
+                    FONT_NAME, FONT_SIZE_XLARGE, FONT_SIZE_MEDIUM, PADDING_LARGE, BUTTON_HEIGHT_STD, TEXT_ON_LIGHT_BG_COLOR)
 
 class MenuScreen(BaseScreen):
     """
@@ -10,8 +11,7 @@ class MenuScreen(BaseScreen):
     """
     def __init__(self, app_state_manager):
         super().__init__(app_state_manager)
-        # Corrected: Use FONT_NAME directly as it's the string 'Arial'
-        self.title_font = pygame.font.SysFont(FONT_NAME, FONT_SIZE_LARGE, bold=True)
+        self.title_font = pygame.font.SysFont(FONT_NAME, FONT_SIZE_XLARGE, bold=True)
         self.buttons = []
         self._setup_buttons()
 
@@ -20,14 +20,10 @@ class MenuScreen(BaseScreen):
         Defines the buttons for the main menu.
         Each button has a text, position, size, and an associated action (state change).
         """
-        button_width = 300
-        button_height = 60
-        spacing = 20
+        button_width = 350  # Increased width for better text fit
+        button_height = BUTTON_HEIGHT_STD
+        spacing = PADDING_LARGE # Use PADDING_LARGE for spacing between buttons
         
-        # Calculate starting Y position to center buttons vertically
-        total_button_height = 4 * button_height + 3 * spacing # 4 buttons, 3 spaces
-        start_y = (self.screen_height - total_button_height) // 2
-
         self.buttons_data = [
             {"text": "Human vs. Human", "action": "HUMAN_VS_HUMAN"},
             {"text": "Human vs. Engine", "action": "HUMAN_VS_ENGINE"},
@@ -35,6 +31,14 @@ class MenuScreen(BaseScreen):
             {"text": "View Statistics", "action": "VIEW_STATS"},
             {"text": "Exit", "action": "EXIT"}
         ]
+
+        num_buttons = len(self.buttons_data)
+        total_button_height = num_buttons * button_height + (num_buttons - 1) * spacing
+
+        # Start Y position for the first button, considering title space
+        title_space = 150 # Approximate space for title + top padding
+        start_y = title_space + (self.screen_height - title_space - total_button_height) // 2
+
 
         for i, data in enumerate(self.buttons_data):
             x = (self.screen_width - button_width) // 2
@@ -49,14 +53,16 @@ class MenuScreen(BaseScreen):
         surface.fill(BACKGROUND_COLOR)
 
         # Draw Title
-        title_surface = self.title_font.render("Chess Commander", True, TEXT_COLOR)
-        title_rect = title_surface.get_rect(center=(self.screen_width // 2, 100))
+        title_surface = self.render_text("Chess Commander", color=TEXT_COLOR, size=FONT_SIZE_XLARGE, bold=True)
+        title_rect = title_surface.get_rect(center=(self.screen_width // 2, 80)) # Adjusted Y for title
         surface.blit(title_surface, title_rect)
 
         # Draw Buttons
         for text, rect, action in self.buttons:
+            # Use TEXT_ON_LIGHT_BG_COLOR for button text for better contrast
             button_surface, button_rect, _ = self.create_button(
-                text, rect, BUTTON_COLOR, BUTTON_HOVER_COLOR, action
+                text, rect, BUTTON_COLOR, BUTTON_HOVER_COLOR, action,
+                text_color=TEXT_ON_LIGHT_BG_COLOR, text_size=FONT_SIZE_MEDIUM
             )
             surface.blit(button_surface, button_rect)
 

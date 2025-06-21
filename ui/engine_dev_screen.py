@@ -2,11 +2,16 @@
 import pygame
 from ui.base_screen import BaseScreen
 from database.db_manager import DBManager
-from engine.stockfish_engine import StockfishEngine # To potentially add Stockfish
-from engine.simple_ai_engine import SimpleAIEngine  # To potentially add Simple AI
+from engine.stockfish_engine import StockfishEngine
+from engine.simple_ai_engine import SimpleAIEngine
+from engine.RandomMover import RandomMover # Import RandomMover
 from tournament.swiss_tournament import SwissTournament
-from config import BACKGROUND_COLOR, BUTTON_COLOR, BUTTON_HOVER_COLOR, TEXT_COLOR, FONT_SIZE_LARGE, FONT_SIZE_MEDIUM, FONT_SIZE_SMALL
-import os # For checking file existence
+from config import (BACKGROUND_COLOR, BUTTON_COLOR, BUTTON_HOVER_COLOR, TEXT_COLOR, TEXT_ON_LIGHT_BG_COLOR,
+                    FONT_NAME, FONT_SIZE_XLARGE, FONT_SIZE_LARGE, FONT_SIZE_MEDIUM, FONT_SIZE_SMALL,
+                    PADDING_SMALL, PADDING_MEDIUM, PADDING_LARGE, BUTTON_HEIGHT_STD, INPUT_HEIGHT_STD,
+                    BORDER_RADIUS_STD, MESSAGE_BOX_BG_COLOR, MESSAGE_BOX_BORDER_COLOR)
+import os
+from datetime import datetime # For default tournament name
 
 class EngineDevScreen(BaseScreen):
     """
@@ -32,106 +37,161 @@ class EngineDevScreen(BaseScreen):
             self.selected_engine_idx = 0 # Select the first engine by default
 
     def _setup_ui_elements(self):
-        """Defines the buttons and input areas for this screen."""
+        """Defines the buttons and input areas for this screen with improved layout."""
         self.buttons = []
-        button_width, button_height = 200, 50
         x_center = self.screen_width // 2
-        y_start_buttons = 100
+        content_width = self.screen_width * 0.8  # Use 80% of screen width for content
+        left_align = x_center - content_width // 2
 
-        # Back to Menu button
+        current_y = PADDING_LARGE * 3 # Start below title space
+
+        # Back to Menu button (Top Left)
+        back_button_width = 200
         self.buttons.append({
-            "text": "Back to Menu", "rect": pygame.Rect(20, 20, 160, 40),
+            "text": "Back to Menu",
+            "rect": pygame.Rect(PADDING_MEDIUM, PADDING_MEDIUM, back_button_width, BUTTON_HEIGHT_STD),
             "action": "BACK_TO_MENU"
         })
 
-        # Engine Management Section
-        add_simple_ai_rect = pygame.Rect(x_center - 250, y_start_buttons, button_width, button_height)
+        # --- Engine Management Section ---
+        section_spacing = PADDING_LARGE * 2
+        
+        # Add Engine Buttons (Now three, side by side or wrapped)
+        num_add_buttons = 3
+        add_button_width = (content_width - PADDING_MEDIUM * (num_add_buttons - 1)) // num_add_buttons
+        
+        add_simple_ai_rect = pygame.Rect(left_align, current_y, add_button_width, BUTTON_HEIGHT_STD)
         self.buttons.append({"text": "Add Simple AI", "rect": add_simple_ai_rect, "action": "ADD_SIMPLE_AI"})
 
-        # Placeholder for 'Add Stockfish' button/input
-        # In a real app, this might involve a text input for path
-        add_stockfish_rect = pygame.Rect(x_center + 50, y_start_buttons, button_width, button_height)
-        self.buttons.append({"text": "Add Stockfish", "rect": add_stockfish_rect, "action": "ADD_STOCKFISH"})
-        
-        # Engine display area
-        self.engine_display_rect = pygame.Rect(x_center - 250, y_start_buttons + 70, 500, 50)
-        self.prev_engine_btn_rect = pygame.Rect(self.engine_display_rect.left - 60, self.engine_display_rect.top, 50, 50)
-        self.next_engine_btn_rect = pygame.Rect(self.engine_display_rect.right + 10, self.engine_display_rect.top, 50, 50)
-        
-        # Tournament Management Section
-        self.tournament_name_input = "" # For user input
-        self.num_rounds_input = "3" # Default rounds
+        add_random_mover_rect = pygame.Rect(add_simple_ai_rect.right + PADDING_MEDIUM, current_y, add_button_width, BUTTON_HEIGHT_STD)
+        self.buttons.append({"text": "Add Random Mover", "rect": add_random_mover_rect, "action": "ADD_RANDOM_MOVER"})
 
-        self.tournament_name_rect = pygame.Rect(x_center - 250, y_start_buttons + 180, 500, 40)
-        self.num_rounds_rect = pygame.Rect(x_center - 250, y_start_buttons + 230, 240, 40)
+        add_stockfish_rect = pygame.Rect(add_random_mover_rect.right + PADDING_MEDIUM, current_y, add_button_width, BUTTON_HEIGHT_STD)
+        self.buttons.append({"text": "Add Stockfish (Local)", "rect": add_stockfish_rect, "action": "ADD_STOCKFISH"})
+        current_y += BUTTON_HEIGHT_STD + PADDING_MEDIUM
 
-        start_tournament_rect = pygame.Rect(x_center - 150, y_start_buttons + 290, 300, button_height)
-        self.buttons.append({"text": "Start Tournament", "rect": start_tournament_rect, "action": "START_TOURNAMENT"})
+        # Engine Display Area (Prev/Display/Next)
+        engine_nav_button_width = 60
+        engine_display_box_width = content_width - (engine_nav_button_width * 2) - (PADDING_SMALL * 2)
 
-        view_tournaments_rect = pygame.Rect(x_center - 150, y_start_buttons + 360, 300, button_height)
+        self.prev_engine_btn_rect = pygame.Rect(left_align, current_y, engine_nav_button_width, BUTTON_HEIGHT_STD)
+        self.engine_display_rect = pygame.Rect(self.prev_engine_btn_rect.right + PADDING_SMALL, current_y, engine_display_box_width, BUTTON_HEIGHT_STD)
+        self.next_engine_btn_rect = pygame.Rect(self.engine_display_rect.right + PADDING_SMALL, current_y, engine_nav_button_width, BUTTON_HEIGHT_STD)
+        current_y += BUTTON_HEIGHT_STD + section_spacing
+
+        # --- Tournament Management Section ---
+        self.tournament_name_input = ""
+        self.num_rounds_input = "3"
+
+        # Tournament Name Input
+        self.tournament_name_label_pos = (left_align, current_y)
+        current_y += FONT_SIZE_SMALL + PADDING_SMALL # Space for label
+        self.tournament_name_rect = pygame.Rect(left_align, current_y, content_width, INPUT_HEIGHT_STD)
+        current_y += INPUT_HEIGHT_STD + PADDING_MEDIUM
+
+        # Number of Rounds Input
+        self.num_rounds_label_pos = (left_align, current_y)
+        current_y += FONT_SIZE_SMALL + PADDING_SMALL # Space for label
+        self.num_rounds_rect = pygame.Rect(left_align, current_y, content_width // 2, INPUT_HEIGHT_STD) # Half width
+        current_y += INPUT_HEIGHT_STD + PADDING_LARGE
+
+        # Start Tournament Button
+        start_tournament_width = content_width // 1.5
+        start_tournament_rect = pygame.Rect(x_center - start_tournament_width // 2, current_y, start_tournament_width, BUTTON_HEIGHT_STD + 10)
+        self.buttons.append({"text": "Start Tournament", "rect": start_tournament_rect, "action": "START_TOURNAMENT", "size": FONT_SIZE_LARGE})
+        current_y += BUTTON_HEIGHT_STD + 10 + PADDING_MEDIUM
+
+        # View Tournament History Button
+        view_history_width = content_width // 1.5
+        view_tournaments_rect = pygame.Rect(x_center - view_history_width // 2, current_y, view_history_width, BUTTON_HEIGHT_STD)
         self.buttons.append({"text": "View Tournament History", "rect": view_tournaments_rect, "action": "VIEW_TOURNAMENT_HISTORY"})
 
-        # Input box focus
-        self.active_input_box = None # 'tournament_name' or 'num_rounds'
+        self.tournament_message_y = view_tournaments_rect.bottom + PADDING_LARGE # For messages below buttons
+        self.active_input_box = None
 
     def draw(self, surface):
         surface.fill(BACKGROUND_COLOR)
 
-        title_surface = self.render_text("Engine Development & Tournaments", size=FONT_SIZE_LARGE)
-        title_rect = title_surface.get_rect(center=(self.screen_width // 2, 50))
+        # Title
+        title_surface = self.render_text("Engine Development & Tournaments", color=TEXT_COLOR, size=FONT_SIZE_XLARGE, bold=True)
+        title_rect = title_surface.get_rect(center=(self.screen_width // 2, PADDING_LARGE))
         surface.blit(title_surface, title_rect)
 
-        # Draw buttons
+        # Draw Buttons (general ones)
         for btn_data in self.buttons:
             button_surface, button_rect, _ = self.create_button(
-                btn_data["text"], btn_data["rect"], BUTTON_COLOR, BUTTON_HOVER_COLOR, btn_data["action"]
+                btn_data["text"], btn_data["rect"], BUTTON_COLOR, BUTTON_HOVER_COLOR, btn_data["action"],
+                text_color=TEXT_ON_LIGHT_BG_COLOR, text_size=btn_data.get("size", FONT_SIZE_MEDIUM)
             )
             surface.blit(button_surface, button_rect)
         
-        # Draw Engine Display
-        pygame.draw.rect(surface, (200, 200, 200), self.engine_display_rect, border_radius=5)
+        # Draw Engine Display Box (using draw_text_box for consistency)
         engine_text = "No Engines Added"
-        if self.engines_in_db:
-            engine_text = self.engines_in_db[self.selected_engine_idx]['name']
-        engine_name_surface = self.render_text(engine_text, size=FONT_SIZE_MEDIUM)
-        engine_name_rect = engine_name_surface.get_rect(center=self.engine_display_rect.center)
-        surface.blit(engine_name_surface, engine_name_rect)
+        if self.engines_in_db and self.selected_engine_idx >= 0:
+            engine_text = f"Selected: {self.engines_in_db[self.selected_engine_idx]['name']}"
+        elif not self.engines_in_db:
+             engine_text = "No Engines in DB"
 
-        # Prev/Next Engine Buttons
-        prev_btn_surface, _, _ = self.create_button("<", self.prev_engine_btn_rect, BUTTON_COLOR, BUTTON_HOVER_COLOR, "PREV_ENGINE")
-        next_btn_surface, _, _ = self.create_button(">", self.next_engine_btn_rect, BUTTON_COLOR, BUTTON_HOVER_COLOR, "NEXT_ENGINE")
+        self.draw_text_box(surface, engine_text, self.engine_display_rect,
+                           text_color=TEXT_COLOR, bg_color=(60,60,60), border_color=(100,100,100),
+                           font_size=FONT_SIZE_MEDIUM, border_radius=BORDER_RADIUS_STD)
+
+        # Prev/Next Engine Buttons (specific styling for arrows if needed)
+        prev_btn_surface, _, _ = self.create_button("<", self.prev_engine_btn_rect, BUTTON_COLOR, BUTTON_HOVER_COLOR, "PREV_ENGINE", text_size=FONT_SIZE_LARGE)
+        next_btn_surface, _, _ = self.create_button(">", self.next_engine_btn_rect, BUTTON_COLOR, BUTTON_HOVER_COLOR, "NEXT_ENGINE", text_size=FONT_SIZE_LARGE)
         surface.blit(prev_btn_surface, self.prev_engine_btn_rect)
         surface.blit(next_btn_surface, self.next_engine_btn_rect)
 
-        # Draw Tournament Inputs
-        surface.blit(self.render_text("Tournament Name:", size=FONT_SIZE_SMALL), (self.tournament_name_rect.x, self.tournament_name_rect.y - 25))
-        pygame.draw.rect(surface, (255, 255, 255), self.tournament_name_rect, border_radius=5)
-        pygame.draw.rect(surface, TEXT_COLOR if self.active_input_box == 'tournament_name' else (150,150,150), self.tournament_name_rect, 2, border_radius=5)
-        name_input_surface = self.render_text(self.tournament_name_input + ("|" if self.active_input_box == 'tournament_name' else ""), size=FONT_SIZE_MEDIUM, color=(0,0,0))
-        surface.blit(name_input_surface, self.tournament_name_rect.move(5, 5))
+        # Draw Tournament Input Fields with Labels
+        # Tournament Name
+        surface.blit(self.render_text("Tournament Name:", color=TEXT_COLOR, size=FONT_SIZE_SMALL), self.tournament_name_label_pos)
+        self.draw_input_box(surface, self.tournament_name_input, self.tournament_name_rect, 'tournament_name')
 
-        surface.blit(self.render_text("Number of Rounds:", size=FONT_SIZE_SMALL), (self.num_rounds_rect.x, self.num_rounds_rect.y - 25))
-        pygame.draw.rect(surface, (255, 255, 255), self.num_rounds_rect, border_radius=5)
-        pygame.draw.rect(surface, TEXT_COLOR if self.active_input_box == 'num_rounds' else (150,150,150), self.num_rounds_rect, 2, border_radius=5)
-        rounds_input_surface = self.render_text(self.num_rounds_input + ("|" if self.active_input_box == 'num_rounds' else ""), size=FONT_SIZE_MEDIUM, color=(0,0,0))
-        surface.blit(rounds_input_surface, self.num_rounds_rect.move(5, 5))
+        # Number of Rounds
+        surface.blit(self.render_text("Number of Rounds:", color=TEXT_COLOR, size=FONT_SIZE_SMALL), self.num_rounds_label_pos)
+        self.draw_input_box(surface, self.num_rounds_input, self.num_rounds_rect, 'num_rounds')
 
         # Tournament progress/message display
         if self.tournament_running:
-            progress_text = f"Round {self.tournament.get_current_round()} of {self.tournament.get_num_rounds()}"
-            progress_surface = self.render_text(progress_text, size=FONT_SIZE_MEDIUM, color=(0,150,0))
-            progress_rect = progress_surface.get_rect(center=(x_center, self.screen_height - 150))
+            current_round_info = self.tournament.get_current_round_info() if self.tournament else "N/A"
+            progress_text = f"Tournament: '{self.tournament.name}' - Round {current_round_info}"
+            progress_surface = self.render_text(progress_text, color=(180, 255, 180), size=FONT_SIZE_MEDIUM) # Light green
+            progress_rect = progress_surface.get_rect(center=(self.screen_width // 2, self.tournament_message_y))
             surface.blit(progress_surface, progress_rect)
 
-            # Display scores
-            scores_y = progress_rect.bottom + 10
-            for i, (engine_name, data) in enumerate(self.tournament.get_standings().items()): # Need a method to get sorted scores
-                score_text = f"{engine_name}: {data['points']} pts"
-                score_surface = self.render_text(score_text, size=FONT_SIZE_SMALL)
-                score_rect = score_surface.get_rect(center=(x_center, scores_y + i * 30))
+            # Display standings (simplified)
+            standings = self.tournament.get_standings() if self.tournament else {}
+            scores_y = progress_rect.bottom + PADDING_MEDIUM
+            for i, (engine_name, data) in enumerate(standings.items()):
+                score_text = f"{engine_name}: {data['points']} pts, Played: {data['played']}"
+                score_surface = self.render_text(score_text, color=TEXT_COLOR, size=FONT_SIZE_SMALL)
+                score_rect = score_surface.get_rect(midtop=(self.screen_width // 2, scores_y + i * (FONT_SIZE_SMALL + PADDING_SMALL)))
                 surface.blit(score_surface, score_rect)
+
         elif self.tournament_message:
-            self._draw_message_box(surface, self.tournament_message)
+            # Use the generalized message box from BaseScreen
+            super()._draw_message_box(surface, self.tournament_message,
+                                      self.font, # Use default medium font from base
+                                      text_color=TEXT_COLOR,
+                                      bg_color=MESSAGE_BOX_BG_COLOR,
+                                      border_color=MESSAGE_BOX_BORDER_COLOR,
+                                      padding=PADDING_MEDIUM)
+
+    def draw_input_box(self, surface, text, rect, input_name):
+        """Helper to draw a styled input box."""
+        bg_color = (220, 220, 220) # Light gray for input background
+        text_color_input = (10,10,10) # Dark text for input
+        border_color_active = BUTTON_HOVER_COLOR
+        border_color_inactive = (150,150,150)
+
+        pygame.draw.rect(surface, bg_color, rect, border_radius=BORDER_RADIUS_STD)
+        border_col = border_color_active if self.active_input_box == input_name else border_color_inactive
+        pygame.draw.rect(surface, border_col, rect, 2, border_radius=BORDER_RADIUS_STD)
+
+        display_text = text + ("|" if self.active_input_box == input_name else "")
+        input_surface = self.render_text(display_text, color=text_color_input, size=FONT_SIZE_MEDIUM)
+        # Position text with small padding
+        surface.blit(input_surface, rect.move(PADDING_SMALL, (rect.height - input_surface.get_height()) // 2))
 
 
     def handle_event(self, event):
@@ -182,10 +242,15 @@ class EngineDevScreen(BaseScreen):
                 self.tournament._end_tournament() # Ensure engines are quit
             self.app_state_manager.set_state("MENU")
         elif action == "ADD_SIMPLE_AI":
-            # Simple AI needs no path, just a name
-            name = f"SimpleAI-{len(self.engines_in_db) + 1}"
-            self.db_manager.add_engine(name, "1.0", None, {"type": "simple"})
-            self._load_engines_from_db() # Reload to show new engine
+            # Simple AI needs no path, just a name, type 'internal'
+            name = f"SimpleAI-{sum(1 for e in self.engines_in_db if e['name'].startswith('SimpleAI')) + 1}"
+            self.db_manager.add_engine(name, "1.0", None, {"type": "internal", "class": "SimpleAIEngine"})
+            self._load_engines_from_db()
+            self.tournament_message = f"Added {name}!"
+        elif action == "ADD_RANDOM_MOVER":
+            name = f"RandomMover-{sum(1 for e in self.engines_in_db if e['name'].startswith('RandomMover')) + 1}"
+            self.db_manager.add_engine(name, "1.0", None, {"type": "internal", "class": "RandomMover"})
+            self._load_engines_from_db()
             self.tournament_message = f"Added {name}!"
         elif action == "ADD_STOCKFISH":
             # For adding Stockfish, you'd need a way to input its path.
@@ -225,20 +290,34 @@ class EngineDevScreen(BaseScreen):
         # Create actual engine instances from DB data
         active_engines_for_tournament = []
         for eng_data in self.engines_in_db:
-            if eng_data.get('path') and os.path.exists(eng_data['path']):
+            engine_instance = None
+            engine_type = eng_data.get('type', 'external') # Default to external if not specified
+            engine_class_name = eng_data.get('class') # For internal engines
+
+            if engine_type == 'internal':
+                if engine_class_name == 'SimpleAIEngine':
+                    engine_instance = SimpleAIEngine(name=eng_data['name'], version=eng_data['version'])
+                elif engine_class_name == 'RandomMover':
+                    engine_instance = RandomMover(name=eng_data['name'], version=eng_data['version'])
+                else:
+                    print(f"Unknown internal engine class: {engine_class_name} for {eng_data['name']}. Skipping.")
+            elif eng_data.get('path') and os.path.exists(eng_data['path']): # External UCI
                 try:
-                    engine_instance = StockfishEngine(eng_data['path'], name=eng_data['name'], version=eng_data['version'])
-                    if engine_instance.engine: # Check if connection was successful
-                        active_engines_for_tournament.append(engine_instance)
+                    stockfish_instance = StockfishEngine(eng_data['path'], name=eng_data['name'], version=eng_data['version'])
+                    if stockfish_instance.engine: # Check if connection was successful
+                        engine_instance = stockfish_instance
                     else:
-                        print(f"Failed to connect to {eng_data['name']} at {eng_data['path']}. Skipping.")
+                        print(f"Failed to connect to external engine {eng_data['name']} at {eng_data['path']}. Skipping.")
                 except Exception as e:
                     print(f"Error initializing Stockfish engine {eng_data['name']}: {e}")
-            else: # Assume it's a simple AI if no path or path doesn't exist
-                 active_engines_for_tournament.append(SimpleAIEngine(name=eng_data['name'], version=eng_data['version']))
+            else:
+                print(f"Engine {eng_data['name']} has no valid path for external type or unrecognized internal type. Skipping.")
+
+            if engine_instance:
+                active_engines_for_tournament.append(engine_instance)
 
         if len(active_engines_for_tournament) < 2:
-            self.tournament_message = "Not enough *working* engines to start a tournament. Check paths."
+            self.tournament_message = "Not enough *working* engines (min 2) to start a tournament. Check paths or add internal engines."
             # Also clean up any partially initialized Stockfish engines
             for eng in active_engines_for_tournament:
                 if hasattr(eng, 'quit'): eng.quit()
@@ -260,24 +339,19 @@ class EngineDevScreen(BaseScreen):
                 self.tournament_running = False
                 self.tournament_message = "Tournament Completed!"
                 print("Tournament finished updating in UI.")
-            else:
-                 # In a real application, you would manage the tournament games
-                 # here, potentially one by one, to show progress.
-                 # For now, SwissTournament.run_next_round() directly runs games.
-                 pass
+            # Potentially save final standings or trigger other completion logic
+            # self.tournament.save_final_results() # Example
+            self.tournament = None # Clear the tournament object
+        elif self.tournament and self.tournament.is_round_complete():
+            # If a round is complete, you might want to display a message or auto-proceed
+            # For this version, we assume the tournament manager handles round progression internally
+            # or would be triggered by another UI element not yet implemented (e.g., "Next Round" button).
+            # self.tournament.play_next_game_or_round() # Or similar logic
+            pass
 
-    def _draw_message_box(self, surface, message):
-        """Draws a message box in the center of the screen."""
-        text_surface = self.render_text(message, size=FONT_SIZE_MEDIUM)
-        text_rect = text_surface.get_rect(center=(self.screen_width / 2, self.screen_height / 2))
-        
-        background_rect = text_rect.inflate(40, 30)
-        pygame.draw.rect(surface, (255, 255, 255, 200), background_rect, border_radius=15)
-        pygame.draw.rect(surface, (0, 0, 0), background_rect, 2, border_radius=15)
-        
-        surface.blit(text_surface, text_rect)
+    # _draw_message_box is inherited from BaseScreen and used via super()._draw_message_box(...)
 
     def __del__(self):
-        # Ensure engines are quit when screen is no longer needed (e.g. app exit)
+        # Ensure engines are quit when screen is no longer needed or app exits.
         if self.tournament and hasattr(self.tournament, '_end_tournament'):
             self.tournament._end_tournament()
