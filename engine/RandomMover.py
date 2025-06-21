@@ -1,64 +1,82 @@
+# engine/RandomMover.py
 import chess
-import chess.engine
 import random
-import sys
+from engine.base_engine import BaseChessEngine
 
-class RandomMover:
-    def __init__(self):
-        self.board = chess.Board()
+class RandomMover(BaseChessEngine):
+    """
+    A simple chess engine that makes random legal moves.
+    """
+    def __init__(self, name="Random Mover", version="1.0"):
+        super().__init__(name, version)
 
-    def uci_loop(self):
-        """Implements a basic UCI loop to communicate with a UCI GUI/tester."""
-        while True:
-            line = sys.stdin.readline().strip()
-            if line == "uci":
-                sys.stdout.write("id name RandomMover\n")
-                sys.stdout.write("id author YourName\n")
-                sys.stdout.write("uciok\n")
-                sys.stdout.flush()
-            elif line == "isready":
-                sys.stdout.write("readyok\n")
-                sys.stdout.flush()
-            elif line == "ucinewgame":
-                self.board = chess.Board()
-            elif line.startswith("position"):
-                parts = line.split()
-                if "moves" in parts:
-                    moves_index = parts.index("moves")
-                    fen_part = " ".join(parts[1:moves_index])
-                    self.board = chess.Board(fen_part)
-                    for move_uci in parts[moves_index + 1:]:
-                        move = chess.Move.from_uci(move_uci)
-                        if move in self.board.legal_moves:
-                            self.board.push(move)
-                        else:
-                            # This should ideally not happen if the UCI communication is correct
-                            print(f"info string Illegal move received: {move_uci}", file=sys.stderr)
-                else:
-                    self.board = chess.Board(" ".join(parts[1:]))
-            elif line.startswith("go"):
-                # Find a random legal move
-                legal_moves = list(self.board.legal_moves)
-                if legal_moves:
-                    chosen_move = random.choice(legal_moves)
-                    sys.stdout.write(f"bestmove {chosen_move.uci()}\n")
-                else:
-                    # No legal moves means game over (checkmate, stalemate, etc.)
-                    # Engines usually don't send 'bestmove none' but rather let the GUI handle game over
-                    # For this simple engine, we can just print a message.
-                    if self.board.is_checkmate():
-                        sys.stdout.write("info string Checkmate!\n")
-                    elif self.board.is_stalemate():
-                        sys.stdout.write("info string Stalemate!\n")
-                    # ... handle other draw conditions
-                    sys.stdout.write("bestmove (none)\n") # Some GUIs might expect this for game over
-                sys.stdout.flush()
-            elif line == "quit":
-                break
-            else:
-                # Optionally log unknown commands for debugging
-                print(f"info string Unknown command: {line}", file=sys.stderr)
+    def make_move(self) -> chess.Move | None:
+        """
+        Selects a random legal move from the current board position.
+        Returns a chess.Move object if a legal move is available, otherwise None.
+        """
+        if self.board.is_game_over(claim_draw=True):
+            # claim_draw=True considers three-fold repetition, fifty-move rule, etc.
+            # as game over conditions, for which no move can be made.
+            # print(f"{self.name}: Game is over, no moves to make.") # Optional: for debugging
+            return None
 
-if __name__ == "__main__":
+        legal_moves = list(self.board.legal_moves)
+
+        if not legal_moves:
+            # This case should ideally be caught by is_game_over() if it's checkmate or stalemate.
+            # However, it's good practice to handle it explicitly.
+            # print(f"{self.name}: No legal moves available (e.g., stalemate or checkmate).") # Optional: for debugging
+            return None
+
+        random_move = random.choice(legal_moves)
+        # print(f"{self.name} selected move: {random_move.uci()}") # Optional: for debugging
+        return random_move
+
+if __name__ == '__main__':
+    # Example Usage / Simple Test:
     engine = RandomMover()
-    engine.uci_loop()
+    board = chess.Board()
+    print("RandomMover Engine - Example Usage")
+    print("="*30)
+    print("Initial board (FEN):")
+    print(board.fen())
+    print(board)
+
+    for i in range(10): # Make up to 10 random moves for demonstration
+        print(f"\n--- Turn {i+1} ({'White' if board.turn == chess.WHITE else 'Black'}) ---")
+        if board.is_game_over(claim_draw=True):
+            print("Game is over.")
+            break
+
+        engine.set_board(board) # Update engine's internal board with the current game board
+        move = engine.make_move()
+
+        if move:
+            print(f"Engine proposes move: {move.uci()}")
+            board.push(move) # Apply the move to the local board for this test
+            print("Board after move (FEN):")
+            print(board.fen())
+            print(board)
+        else:
+            # This condition implies game over (checkmate/stalemate) or an unexpected issue.
+            if board.is_checkmate():
+                print("Checkmate!")
+            elif board.is_stalemate():
+                print("Stalemate!")
+            elif board.is_insufficient_material():
+                print("Draw due to insufficient material.")
+            elif board.is_seventyfive_moves():
+                print("Draw due to 75-move rule.")
+            elif board.is_fivefold_repetition():
+                print("Draw due to fivefold repetition.")
+            else:
+                print("Engine could not make a move (or game ended without specific known reason here).")
+            break
+
+    print("\n" + "="*30)
+    result = board.result(claim_draw=True)
+    print(f"Final game result: {result}")
+    print(f"Is Checkmate: {board.is_checkmate()}")
+    print(f"Is Stalemate: {board.is_stalemate()}")
+    print(f"Is Insufficient Material: {board.is_insufficient_material()}")
